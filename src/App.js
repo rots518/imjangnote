@@ -145,9 +145,9 @@ export default function App() {
     }
     
     // 👇 이곳에 카카오 디벨로퍼스에서 발급받은 REST API 키를 넣으세요!
-    const KAKAO_API_KEY = '4168fb7954bac34a28603a38479d6f12';
+    const KAKAO_REST_API_KEY = 'ec73b276eedaefb216ac1a88193e13c4';
     
-    if (KAKAO_API_KEY === '4168fb7954bac34a28603a38479d6f12') {
+    if (KAKAO_REST_API_KEY !== '발급받으신_REST_API_키를_여기에_넣으세요') {
       alert('코드에 카카오 REST API 키를 먼저 입력해주세요!');
       return;
     }
