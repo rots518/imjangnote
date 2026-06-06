@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   MapPin, Camera, Calendar, ChevronLeft, Plus, List as ListIcon, 
   Trash2, Image as ImageIcon, Building, Search, Users, Map, 
-  Train, Home, Coffee, MessageCircle, Loader2, Filter, Edit, Navigation, RefreshCw
+  Train, Home, Coffee, MessageCircle, Loader2, Filter, Edit, Navigation, RefreshCw, X
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -98,8 +98,9 @@ export default function App() {
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // === 💡 탭 상태 변수 추가 ===
-  const [detailTab, setDetailTab] = useState('memo'); // 'memo' | 'analysis'
+  // 탭 상태 변수 및 확대 이미지 상태
+  const [detailTab, setDetailTab] = useState('memo'); 
+  const [expandedImage, setExpandedImage] = useState(null); // 추가된 사진 확대 상태
 
   const [filterRegion, setFilterRegion] = useState('전체');
   const [filterDistrict, setFilterDistrict] = useState('전체');
@@ -125,7 +126,9 @@ export default function App() {
   const [isEditMode, setIsEditMode] = useState(false); 
   const [editTargetId, setEditTargetId] = useState(null); 
   
+  // 입지 분석 결과 상태
   const [poiResults, setPoiResults] = useState({}); 
+  const [nearestSubway, setNearestSubway] = useState(null); // 가장 가까운 지하철역 상태
   const [isPoiLoading, setIsPoiLoading] = useState(false); 
   
   const fileInputRef = useRef(null);
@@ -174,7 +177,8 @@ export default function App() {
   const goToDetail = (entry) => {
     setSelectedEntry(entry);
     setPoiResults({}); 
-    setDetailTab('memo'); // 상세페이지 열릴 때 항상 '메모' 탭이 먼저 보이도록 초기화
+    setNearestSubway(null); // 상세페이지 열릴 때 지하철 결과 초기화
+    setDetailTab('memo'); 
     setCurrentView('detail');
   };
 
@@ -223,6 +227,7 @@ export default function App() {
     }
     setIsPoiLoading(true);
     try {
+      // 1. 단지 주소 좌표 검색
       const localRes = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(selectedEntry.address)}`, {
         headers: { Authorization: `KakaoAK ${KAKAO_REST_API_KEY}` }
       });
@@ -236,6 +241,27 @@ export default function App() {
       const originX = localData.documents[0].x;
       const originY = localData.documents[0].y;
 
+      // 2. 가장 가까운 지하철역 검색 (카카오 카테고리 SW8)
+      try {
+        const subwayRes = await fetch(`https://dapi.kakao.com/v2/local/search/category.json?category_group_code=SW8&x=${originX}&y=${originY}&sort=distance`, {
+          headers: { Authorization: `KakaoAK ${KAKAO_REST_API_KEY}` }
+        });
+        const subwayData = await subwayRes.json();
+        if (subwayData.documents && subwayData.documents.length > 0) {
+          const nearest = subwayData.documents[0];
+          const distance = parseInt(nearest.distance, 10);
+          const walkTime = Math.ceil(distance / 67); // 성인 도보 약 67m/분 기준 계산
+          setNearestSubway({
+            name: nearest.place_name,
+            distance: distance,
+            walkTime: walkTime
+          });
+        } else {
+          setNearestSubway(null);
+        }
+      } catch(e) { console.error('지하철 API 오류:', e); }
+
+      // 3. 주요 거점 데이터 계산
       const results = {};
       for (const poi of POI_LIST) {
         const stDist = getStraightDistance(originY, originX, poi.y, poi.x);
@@ -388,7 +414,7 @@ export default function App() {
   const renderDetail = () => {
     if (!selectedEntry) return null;
     return (
-      <div className="flex-1 overflow-y-auto bg-white flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto bg-white flex flex-col h-full relative">
         {/* 상단 네비게이션 */}
         <div className="sticky top-0 bg-white/90 backdrop-blur-md border-b border-gray-100 p-4 flex items-center justify-between z-20">
           <button onClick={goToList} className="p-2 -ml-2 text-gray-600 rounded-full hover:bg-gray-100"><ChevronLeft size={24} /></button>
@@ -415,7 +441,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* 💡 탭 메뉴 (메모 vs 입지분석) */}
+          {/* 탭 메뉴 */}
           <div className="flex border-b border-gray-200 mb-6">
             <button
               onClick={() => setDetailTab('memo')}
@@ -435,7 +461,7 @@ export default function App() {
             </button>
           </div>
 
-          {/* 탭 내용 분기 처리 */}
+          {/* 탭 내용 분기 */}
           {detailTab === 'memo' ? (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
               {selectedEntry.images && selectedEntry.images.length > 0 && (
@@ -443,9 +469,16 @@ export default function App() {
                   <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2"><Camera size={16} className="text-blue-500" /> 현장 사진</h4>
                   <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
                     {selectedEntry.images.map((imgUrl, idx) => (
-                      <img key={idx} src={imgUrl} alt="현장사진" className="h-48 w-48 object-cover rounded-xl shadow-sm snap-center shrink-0 border border-gray-200"/>
+                      <img 
+                        key={idx} 
+                        src={imgUrl} 
+                        alt="현장사진" 
+                        onClick={() => setExpandedImage(imgUrl)} // 사진 클릭 시 확대되도록 이벤트 추가
+                        className="h-48 w-48 object-cover rounded-xl shadow-sm snap-center shrink-0 border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
+                      />
                     ))}
                   </div>
+                  <p className="text-[10px] text-gray-400 mt-2 text-center">사진을 탭하면 크게 볼 수 있습니다.</p>
                 </div>
               )}
 
@@ -462,10 +495,7 @@ export default function App() {
             </div>
           ) : (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <MapPin size={16} className="text-blue-500" /> 주요 거점 접근성
-                </h4>
+              <div className="flex items-center justify-end mb-4">
                 <button 
                   onClick={calculateRoutes} 
                   disabled={isPoiLoading}
@@ -475,7 +505,29 @@ export default function App() {
                   API 실시간 업데이트
                 </button>
               </div>
+
+              {/* 지하철역 최우선 표시 영역 */}
+              {nearestSubway && (
+                <div className="mb-6">
+                  <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-3">
+                    <Train size={16} className="text-blue-500" /> 가장 가까운 지하철역
+                  </h4>
+                  <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl flex items-center justify-between shadow-sm">
+                    <div>
+                      <span className="text-emerald-700 font-bold text-lg block leading-tight mb-1">{nearestSubway.name}</span>
+                      <span className="text-emerald-600/80 text-xs">단지에서 직선 {nearestSubway.distance}m</span>
+                    </div>
+                    <div className="text-right bg-white px-3 py-2 rounded-lg border border-emerald-100">
+                      <span className="text-gray-400 text-[10px] block mb-0.5">도보 소요시간</span>
+                      <span className="text-emerald-700 font-bold text-base">약 {nearestSubway.walkTime}분</span>
+                    </div>
+                  </div>
+                </div>
+              )}
               
+              <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-3">
+                <MapPin size={16} className="text-blue-500" /> 주요 거점 접근성
+              </h4>
               <div className="bg-white border border-gray-200 p-1 rounded-xl shadow-sm">
                 {POI_LIST.map((poi, idx) => {
                   const res = poiResults[poi.name];
@@ -516,7 +568,7 @@ export default function App() {
               </div>
               <p className="text-[10px] text-gray-400 mt-3 text-center leading-relaxed">
                 * 직선거리는 카카오 API 좌표 기반 자체 계산입니다.<br/>
-                * 자차 소요시간은 클릭 시점의 실시간 카카오 내비게이션 기준입니다.<br/>
+                * 자차/도보 시간은 클릭 시점의 실시간 카카오 API 기준입니다.<br/>
                 * 대중교통은 카카오 정책상 외부 앱 링크로 확인 가능합니다.
               </p>
             </div>
@@ -590,6 +642,31 @@ export default function App() {
       {currentView === 'list' && renderList()}
       {currentView === 'detail' && renderDetail()}
       {currentView === 'add' && renderAdd()}
+      
+      {/* 💡 전체화면 사진 확대 모달 */}
+      {expandedImage && (
+        <div 
+          className="absolute inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center"
+          onClick={() => setExpandedImage(null)}
+        >
+          <button 
+            className="absolute top-6 right-6 text-white p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpandedImage(null);
+            }}
+          >
+            <X size={24} />
+          </button>
+          <img 
+            src={expandedImage} 
+            className="max-w-full max-h-full object-contain select-none px-4" 
+            alt="확대 사진" 
+            onClick={(e) => e.stopPropagation()} // 클릭 시 닫히지 않도록 막음
+          />
+        </div>
+      )}
+
       {currentView === 'list' && (
         <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-around items-center z-50">
           <button onClick={goToList} className="flex flex-col items-center gap-1 text-blue-600"><ListIcon size={24} /><span className="text-xs font-semibold">목록</span></button>
