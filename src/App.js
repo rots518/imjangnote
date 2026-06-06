@@ -2,12 +2,12 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   MapPin, Camera, Calendar, ChevronLeft, Plus, List as ListIcon, 
   Trash2, Image as ImageIcon, Building, Search, Users, Map, 
-  Train, Home, Coffee, MessageCircle, Loader2, Filter
+  Train, Home, Coffee, MessageCircle, Loader2, Filter, Edit, Navigation
 } from 'lucide-react';
 
 // === Firebase SDK 초기화 부분 ===
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore'; 
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const firebaseConfig = {
@@ -23,6 +23,65 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
+// 주요 길찾기 거점 목록
+const POI_LIST = [
+  { name: '서울역', category: '상권' },
+  { name: '강남역', category: '상권' },
+  { name: '신논현역', category: '상권' },
+  { name: '여의도역', category: '상권' },
+  { name: '압구정로데오역', category: '회사' },
+  { name: '신용산역', category: '회사' }
+];
+
+// 네이티브 이미지 압축 함수 (외부 라이브러리 제거)
+const compressImage = (file, maxSizeMB = 1, maxWidthOrHeight = 1920) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidthOrHeight) {
+            height = Math.round((height *= maxWidthOrHeight / width));
+            width = maxWidthOrHeight;
+          }
+        } else {
+          if (height > maxWidthOrHeight) {
+            width = Math.round((width *= maxWidthOrHeight / height));
+            height = maxWidthOrHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // 품질 0.8로 압축하여 Blob 생성
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Canvas to Blob failed'));
+            return;
+          }
+          const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpeg", {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+          resolve(compressedFile);
+        }, 'image/jpeg', 0.8);
+      };
+      img.onerror = (error) => reject(error);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
+
 export default function App() {
   const [entries, setEntries] = useState([]);
   const [currentView, setCurrentView] = useState('list');
@@ -33,7 +92,7 @@ export default function App() {
   const [filterRegion, setFilterRegion] = useState('전체');
   const [filterDistrict, setFilterDistrict] = useState('전체');
 
-  // 새 글 작성 상태
+  // 폼 상태 (작성 및 수정 공용)
   const [newName, setNewName] = useState('');
   const [newRegion, setNewRegion] = useState('');
   const [newDistrict, setNewDistrict] = useState('');
@@ -48,11 +107,16 @@ export default function App() {
   const [memoVibe, setMemoVibe] = useState('');
   
   // 사진 업로드 관련 상태
-  const [newImageFiles, setNewImageFiles] = useState([]); // 실제 업로드될 파일
-  const [newImagePreviews, setNewImagePreviews] = useState([]); // 화면에 보여줄 미리보기 URL
+  const [existingImages, setExistingImages] = useState([]); // 수정 시 기존 이미지 유지용
+  const [newImageFiles, setNewImageFiles] = useState([]); // 실제 업로드될 새 파일
+  const [newImagePreviews, setNewImagePreviews] = useState([]); // 화면에 보여줄 새 파일 미리보기
   
+  // 기능 상태
   const [isSearching, setIsSearching] = useState(false);
-  const [isSaving, setIsSaving] = useState(false); // 저장 중 로딩 상태
+  const [isSaving, setIsSaving] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false); // 수정 모드 여부
+  const [editTargetId, setEditTargetId] = useState(null); // 수정할 문서 ID
+  
   const fileInputRef = useRef(null);
 
   // === 실시간 데이터 동기화 (Firebase Firestore) ===
@@ -63,7 +127,7 @@ export default function App() {
         ...doc.data()
       }));
       
-      // 최신순으로 메모리 내 정렬
+      // 최신순으로 정렬
       data.sort((a, b) => {
         const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
         const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
@@ -80,7 +144,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 고유 지역(시/도) 및 세부 지역(구/군) 추출
+  // 고유 지역 추출
   const availableRegions = ['전체', ...new Set(entries.map(e => e.region).filter(Boolean))];
   const availableDistricts = useMemo(() => {
     if (filterRegion === '전체') return ['전체'];
@@ -100,6 +164,7 @@ export default function App() {
   const goToList = () => {
     setCurrentView('list');
     setSelectedEntry(null);
+    setIsEditMode(false);
   };
 
   const goToDetail = (entry) => {
@@ -107,6 +172,7 @@ export default function App() {
     setCurrentView('detail');
   };
 
+  // 새 글 작성 모드로 진입
   const goToAdd = () => {
     setNewName('');
     setNewRegion('');
@@ -118,23 +184,64 @@ export default function App() {
     setMemoCondition('');
     setMemoSurroundings('');
     setMemoVibe('');
+    setExistingImages([]);
     setNewImageFiles([]);
     setNewImagePreviews([]);
+    setIsEditMode(false);
+    setEditTargetId(null);
     setCurrentView('add');
   };
 
-  // 사진 첨부 핸들러
-  const handleImageChange = (e) => {
-    const files = Array.from(e.target.files);
-    setNewImageFiles(prev => [...prev, ...files]);
+  // 기존 글 수정 모드로 진입
+  const goToEdit = () => {
+    setNewName(selectedEntry.name);
+    setNewRegion(selectedEntry.region);
+    setNewDistrict(selectedEntry.district);
+    setNewAddress(selectedEntry.address || '');
+    setNewHouseholds(selectedEntry.households || '');
+    setNewDate(selectedEntry.date || new Date().toISOString().split('T')[0]);
+    setMemoTransport(selectedEntry.memo?.transport || '');
+    setMemoCondition(selectedEntry.memo?.condition || '');
+    setMemoSurroundings(selectedEntry.memo?.surroundings || '');
+    setMemoVibe(selectedEntry.memo?.vibe || '');
     
-    const imageUrls = files.map(file => URL.createObjectURL(file));
-    setNewImagePreviews(prev => [...prev, ...imageUrls]);
+    // 기존 이미지는 따로 관리
+    setExistingImages(selectedEntry.images || []);
+    setNewImageFiles([]);
+    setNewImagePreviews([]);
+    
+    setIsEditMode(true);
+    setEditTargetId(selectedEntry.id);
+    setCurrentView('add');
   };
 
-  const removeImage = (idx) => {
+  // 사진 첨부 및 자동 압축 핸들러
+  const handleImageChange = async (e) => {
+    const files = Array.from(e.target.files);
+    
+    try {
+      // 선택한 파일들을 압축 처리 (브라우저 기본 API 사용)
+      const compressedFiles = await Promise.all(
+        files.map(file => compressImage(file, 1, 1920))
+      );
+      
+      setNewImageFiles(prev => [...prev, ...compressedFiles]);
+      
+      const imageUrls = compressedFiles.map(file => URL.createObjectURL(file));
+      setNewImagePreviews(prev => [...prev, ...imageUrls]);
+    } catch (error) {
+      console.error("이미지 압축 실패:", error);
+      alert('이미지 처리 중 오류가 발생했습니다.');
+    }
+  };
+
+  const removeNewImage = (idx) => {
     setNewImageFiles(prev => prev.filter((_, i) => i !== idx));
     setNewImagePreviews(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const removeExistingImage = (idx) => {
+    setExistingImages(prev => prev.filter((_, i) => i !== idx));
   };
 
   // 단지명 검색 (카카오맵 API 연동)
@@ -147,7 +254,8 @@ export default function App() {
     // 👇 이곳에 카카오 디벨로퍼스에서 발급받은 REST API 키를 넣으세요!
     const KAKAO_REST_API_KEY = 'ec73b276eedaefb216ac1a88193e13c4';
     
-    if (KAKAO_REST_API_KEY === '실제_카카오_REST_API_키를_여기에_넣으세요' || KAKAO_REST_API_KEY === 'API_KEY') {
+    // 안전장치
+    if (KAKAO_REST_API_KEY === '실제_REST_API_키를_여기에_넣으세요' || KAKAO_REST_API_KEY === 'API_KEY') {
       alert('코드에 카카오 REST API 키를 먼저 입력해주세요!');
       return;
     }
@@ -155,7 +263,6 @@ export default function App() {
     setIsSearching(true);
     
     try {
-      // 카카오 키워드 장소 검색 API 호출
       const response = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(newName)}`, {
         headers: {
           Authorization: `KakaoAK ${KAKAO_REST_API_KEY}`
@@ -167,18 +274,14 @@ export default function App() {
       const data = await response.json();
 
       if (data.documents && data.documents.length > 0) {
-        // 검색된 결과 중 가장 관련성 높은 첫 번째 결과 가져오기
         const place = data.documents[0];
-        
-        // 도로명 주소가 있으면 도로명, 없으면 지번 주소 사용
         const address = place.road_address_name || place.address_name;
         setNewAddress(address);
 
-        // 지번 주소를 분리해서 시/도, 구/군 추출 (예: "서울 강서구 등촌동 123")
         const addressParts = place.address_name.split(' ');
         if (addressParts.length >= 2) {
-          setNewRegion(addressParts[0]); // 시/도 (예: 서울)
-          setNewDistrict(addressParts[1]); // 구/군 (예: 강서구)
+          setNewRegion(addressParts[0]); 
+          setNewDistrict(addressParts[1]); 
         }
 
         alert('주소 검색 성공! 세대수는 직접 입력해주세요.');
@@ -193,7 +296,7 @@ export default function App() {
     }
   };
 
-  // === Firebase에 저장 ===
+  // === Firebase에 저장 및 수정 ===
   const handleSave = async () => {
     if (!newName.trim()) {
       alert('단지명을 입력해주세요.');
@@ -204,21 +307,22 @@ export default function App() {
       return;
     }
 
-    setIsSaving(true); // 로딩 스피너 표시
+    setIsSaving(true);
 
     try {
-      // 1. Storage에 사진 먼저 업로드
+      // 1. Storage에 새로 추가된 사진만 업로드
       const uploadedImageUrls = [];
       for (const file of newImageFiles) {
-        // 중복 방지를 위해 파일명에 현재 시간(Date.now) 추가
         const fileRef = ref(storage, `imjang_photos/${Date.now()}_${file.name}`);
         await uploadBytes(fileRef, file);
         const downloadUrl = await getDownloadURL(fileRef);
         uploadedImageUrls.push(downloadUrl);
       }
 
-      // 2. Firestore에 데이터 + 업로드된 사진 URL 같이 저장
-      await addDoc(collection(db, 'imjang_notes'), {
+      // 최종 이미지 목록 = 기존 이미지 + 새로 업로드된 이미지
+      const finalImages = [...existingImages, ...uploadedImageUrls];
+
+      const entryData = {
         name: newName,
         region: newRegion,
         district: newDistrict,
@@ -231,9 +335,17 @@ export default function App() {
           surroundings: memoSurroundings,
           vibe: memoVibe
         },
-        images: uploadedImageUrls,
-        createdAt: serverTimestamp() // 서버 시간 기록
-      });
+        images: finalImages
+      };
+
+      if (isEditMode) {
+        // 수정 모드: 기존 데이터 덮어쓰기
+        await updateDoc(doc(db, 'imjang_notes', editTargetId), entryData);
+      } else {
+        // 새 글 작성 모드: 생성 시간 추가 후 새 문서 생성
+        entryData.createdAt = serverTimestamp();
+        await addDoc(collection(db, 'imjang_notes'), entryData);
+      }
 
       goToList();
     } catch (error) {
@@ -390,9 +502,14 @@ export default function App() {
             <span className="text-xs font-bold px-2 py-1 rounded-md bg-blue-50 text-blue-600">{selectedEntry.region}</span>
             <span className="text-xs font-bold px-2 py-1 rounded-md bg-gray-100 text-gray-600">{selectedEntry.district}</span>
           </div>
-          <button onClick={() => handleDelete(selectedEntry.id)} className="text-red-500 p-2 rounded-full hover:bg-red-50">
-            <Trash2 size={20} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={goToEdit} className="text-blue-500 p-2 rounded-full hover:bg-blue-50">
+              <Edit size={20} />
+            </button>
+            <button onClick={() => handleDelete(selectedEntry.id)} className="text-red-500 p-2 rounded-full hover:bg-red-50">
+              <Trash2 size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="p-6">
@@ -410,6 +527,31 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          {/* ================= 길찾기 영역 추가 ================= */}
+          <div className="mb-8">
+            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+              <Navigation size={16} className="text-blue-500" /> 출퇴근 및 상권 실시간 길찾기
+            </h4>
+            <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+              <p className="text-xs text-blue-600 mb-3">단지에서 해당 지역까지 자차/대중교통 소요시간을 확인합니다.</p>
+              <div className="grid grid-cols-2 gap-2">
+                {POI_LIST.map((poi, idx) => (
+                  <a 
+                    key={idx}
+                    href={`https://map.kakao.com/?sName=${encodeURIComponent(selectedEntry.name)}&eName=${encodeURIComponent(poi.name)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between bg-white border border-blue-200 p-2.5 rounded-lg text-sm text-gray-700 font-medium hover:bg-blue-50 transition-colors shadow-sm"
+                  >
+                    <span>{poi.name}</span>
+                    <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-sm">{poi.category}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          </div>
+          {/* ==================================================== */}
 
           {selectedEntry.images && selectedEntry.images.length > 0 && (
             <div className="mb-8">
@@ -475,14 +617,16 @@ export default function App() {
     );
   };
 
-  // ================= 렌더링: 작성 뷰 =================
+  // ================= 렌더링: 작성 및 수정 뷰 =================
   const renderAdd = () => (
     <div className="flex-1 overflow-y-auto bg-white flex flex-col h-full">
       <div className="sticky top-0 bg-white/90 backdrop-blur-md border-b border-gray-100 p-4 flex items-center z-10">
         <button onClick={goToList} className="p-2 -ml-2 text-gray-600 rounded-full hover:bg-gray-100">
           <ChevronLeft size={24} />
         </button>
-        <h2 className="text-lg font-bold flex-1 text-center pr-8">새 임장 기록</h2>
+        <h2 className="text-lg font-bold flex-1 text-center pr-8">
+          {isEditMode ? '임장 기록 수정하기' : '새 임장 기록'}
+        </h2>
       </div>
 
       <div className="p-6 space-y-6 pb-24">
@@ -557,23 +701,40 @@ export default function App() {
           </div>
         </div>
 
-        {/* 사진 업로드 */}
+        {/* 사진 업로드 (수정 모드 대응) */}
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-            <Camera size={16} /> 현장 사진
+          <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center justify-between">
+            <span className="flex items-center gap-2"><Camera size={16} /> 현장 사진 (자동 압축)</span>
+            <span className="text-[10px] text-gray-400 font-normal">최대 1MB로 최적화됩니다.</span>
           </label>
+          
           <div className="flex flex-wrap gap-3">
-            {newImagePreviews.map((imgPreviewUrl, idx) => (
-              <div key={idx} className="relative w-20 h-20">
-                <img src={imgPreviewUrl} className="w-full h-full object-cover rounded-xl border border-gray-200" alt="미리보기" />
+            {/* 기존 등록했던 이미지 (수정 모드일 때만 보임) */}
+            {existingImages.map((imgUrl, idx) => (
+              <div key={`existing-${idx}`} className="relative w-20 h-20 opacity-90 border-2 border-blue-200 rounded-xl">
+                <img src={imgUrl} className="w-full h-full object-cover rounded-xl" alt="기존 이미지" />
                 <button 
-                  onClick={() => removeImage(idx)}
+                  onClick={() => removeExistingImage(idx)}
                   className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md"
                 >
                   <Trash2 size={12} />
                 </button>
               </div>
             ))}
+
+            {/* 새로 추가하는 이미지 미리보기 */}
+            {newImagePreviews.map((imgPreviewUrl, idx) => (
+              <div key={`new-${idx}`} className="relative w-20 h-20">
+                <img src={imgPreviewUrl} className="w-full h-full object-cover rounded-xl border border-gray-200" alt="새 미리보기" />
+                <button 
+                  onClick={() => removeNewImage(idx)}
+                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+
             <button 
               onClick={() => fileInputRef.current?.click()}
               className="w-20 h-20 flex flex-col items-center justify-center gap-1 bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:bg-gray-100 transition-colors"
@@ -639,7 +800,9 @@ export default function App() {
         <button 
           onClick={handleSave}
           disabled={isSaving}
-          className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-200 hover:bg-blue-700 active:transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-70"
+          className={`w-full text-white font-bold py-4 rounded-xl shadow-lg active:transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-70 ${
+            isEditMode ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
+          }`}
         >
           {isSaving ? (
             <>
@@ -647,7 +810,7 @@ export default function App() {
               서버에 안전하게 저장 중...
             </>
           ) : (
-            '기록 저장하기'
+            isEditMode ? '수정한 내용 저장하기' : '새 기록 저장하기'
           )}
         </button>
       </div>
