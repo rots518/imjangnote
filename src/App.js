@@ -158,7 +158,7 @@ export default function App() {
       // 카카오 키워드 장소 검색 API 호출
       const response = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(newName)}`, {
         headers: {
-          Authorization: `KakaoAK ${KAKAO_RESTAPI_KEY}`
+          Authorization: `KakaoAK ${KAKAO_REST_API_KEY}`
         }
       });
 
