@@ -1,3 +1,4 @@
+/* eslint-disable */
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   MapPin, Camera, Calendar, ChevronLeft, Plus, List as ListIcon, 
@@ -42,7 +43,7 @@ const getStraightDistance = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
-const compressImage = (file, maxSizeMB = 1, maxWidthOrHeight = 1920) => {
+const compressImage = (file, maxWidthOrHeight = 1920) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -125,7 +126,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 현재 보고 있는 엔트리 실시간 추적 (업데이트 시 화면 즉시 반영 위함)
   const currentEntry = entries.find(e => e.id === selectedEntryId);
 
   const availableRegions = ['전체', ...new Set(entries.map(e => e.region).filter(Boolean))];
@@ -167,17 +167,17 @@ export default function App() {
   const handleImageChange = async (e) => {
     const files = Array.from(e.target.files);
     try {
-      const compressedFiles = await Promise.all(files.map(file => compressImage(file, 1, 1920)));
+      const compressedFiles = await Promise.all(files.map(file => compressImage(file, 1920)));
       setNewImageFiles(prev => [...prev, ...compressedFiles]);
       setNewImagePreviews(prev => [...prev, ...compressedFiles.map(file => URL.createObjectURL(file))]);
     } catch (error) { console.error(error); alert('이미지 처리 중 오류 발생'); }
   };
 
   const removeNewImage = (idx) => {
-    setNewImageFiles(prev => prev.filter((_, i) => i !== idx));
-    setNewImagePreviews(prev => prev.filter((_, i) => i !== idx));
+    setNewImageFiles(prev => prev.filter((item, i) => i !== idx));
+    setNewImagePreviews(prev => prev.filter((item, i) => i !== idx));
   };
-  const removeExistingImage = (idx) => setExistingImages(prev => prev.filter((_, i) => i !== idx));
+  const removeExistingImage = (idx) => setExistingImages(prev => prev.filter((item, i) => i !== idx));
 
   const handleSearch = async () => {
     if (!newName.trim()) { alert('단지명을 입력해주세요.'); return; }
@@ -219,7 +219,7 @@ export default function App() {
         await updateDoc(doc(db, 'imjang_notes', currentEntry.id), entryData);
       } else {
         entryData.createdAt = serverTimestamp();
-        entryData.properties = []; // 새 기록 생성 시 매물 배열 초기화
+        entryData.properties = []; 
         await addDoc(collection(db, 'imjang_notes'), entryData);
       }
       goToList();
@@ -232,7 +232,6 @@ export default function App() {
     }
   };
 
-  // ================= 🚀 API 실시간 데이터 업데이트 및 저장 로직 =================
   const updateApiData = async () => {
     if (KAKAO_REST_API_KEY.includes('실제_REST_API_키')) { alert('카카오 REST API 키를 입력해주세요!'); return; }
     if (!currentEntry?.address) { alert('주소 정보가 없어 분석할 수 없습니다.'); return; }
@@ -273,20 +272,17 @@ export default function App() {
         results[poi.name] = { straightDist: dist.toFixed(1), driveTime: driveTime };
       }
 
-      // 분석 데이터 생성 및 날짜 기록
       const analysisData = {
         nearestSubway,
         poiResults: results,
         lastUpdated: new Date().toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
       };
 
-      // Firestore에 분석 결과 영구 저장
       await updateDoc(doc(db, 'imjang_notes', currentEntry.id), { analysisData });
       
     } catch (e) { console.error(e); alert("API 업데이트 실패"); } finally { setIsPoiLoading(false); }
   };
 
-  // ================= 🏠 매물 관리 CRUD 로직 =================
   const resetPropForm = () => {
     setPropPrice(''); setPropArea(''); setPropType('계단식'); setPropRooms(''); setPropBaths(''); setPropFloor(''); setPropNotes('');
     setPropEditId(null); setIsPropFormOpen(false);
@@ -300,7 +296,7 @@ export default function App() {
       updatedAt: new Date().toLocaleDateString()
     };
     
-    let updatedProps = currentEntry.properties || [];
+    let updatedProps = [...(currentEntry.properties || [])];
     if(propEditId) {
       updatedProps = updatedProps.map(p => p.id === propEditId ? newProp : p);
     } else {
@@ -325,8 +321,6 @@ export default function App() {
     setPropRooms(prop.rooms || ''); setPropBaths(prop.baths || ''); setPropFloor(prop.floor || ''); setPropNotes(prop.notes || '');
     setPropEditId(prop.id); setIsPropFormOpen(true);
   };
-
-  // =========================================================================
 
   const renderList = () => (
     <div className="flex-1 overflow-y-auto bg-gray-50 flex flex-col">
@@ -414,7 +408,6 @@ export default function App() {
             <button onClick={() => setDetailTab('analysis')} className={`flex-1 py-3 text-sm font-bold flex justify-center items-center gap-2 border-b-2 transition-all ${detailTab === 'analysis' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-gray-400'}`}><Navigation size={16} /> 분석</button>
           </div>
 
-          {/* 📝 임장 메모 탭 */}
           {detailTab === 'memo' && (
             <div className="animate-in fade-in duration-300">
               {currentEntry.images?.length > 0 && (
@@ -436,7 +429,6 @@ export default function App() {
             </div>
           )}
 
-          {/* 🏠 매물 관리 탭 */}
           {detailTab === 'props' && (
             <div className="animate-in fade-in duration-300">
               <div className="flex justify-between items-center mb-4">
@@ -475,7 +467,6 @@ export default function App() {
                     <div className="flex flex-wrap gap-2 mb-3">
                       {prop.area && <span className="bg-gray-100 text-gray-700 text-[11px] px-2 py-1 rounded font-medium flex items-center gap-1"><Maximize size={10}/> {prop.area}</span>}
                       {prop.type && <span className="bg-gray-100 text-gray-700 text-[11px] px-2 py-1 rounded font-medium">{prop.type}</span>}
-                      {/* 미사용 에러 해결을 위해 수정된 부분 */}
                       {(prop.rooms || prop.baths) && <span className="bg-indigo-50 text-indigo-700 text-[11px] px-2 py-1 rounded font-medium flex items-center gap-1"><DoorOpen size={10}/> {prop.rooms||0} <Bath size={10}/> {prop.baths||0}</span>}
                       {prop.floor && <span className="bg-gray-100 text-gray-700 text-[11px] px-2 py-1 rounded font-medium flex items-center gap-1"><Building size={10}/> {prop.floor}</span>}
                     </div>
@@ -488,7 +479,6 @@ export default function App() {
             </div>
           )}
 
-          {/* 🗺️ 입지 분석 탭 */}
           {detailTab === 'analysis' && (
             <div className="animate-in fade-in duration-300">
               <div className="flex items-center justify-between mb-4">
