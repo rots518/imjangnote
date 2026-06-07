@@ -170,7 +170,7 @@ export default function App() {
       const compressedFiles = await Promise.all(files.map(file => compressImage(file, 1, 1920)));
       setNewImageFiles(prev => [...prev, ...compressedFiles]);
       setNewImagePreviews(prev => [...prev, ...compressedFiles.map(file => URL.createObjectURL(file))]);
-    } catch (error) { alert('이미지 처리 중 오류 발생'); }
+    } catch (error) { console.error(error); alert('이미지 처리 중 오류 발생'); }
   };
 
   const removeNewImage = (idx) => {
@@ -196,7 +196,7 @@ export default function App() {
         if (parts.length >= 2) { setNewRegion(parts[0]); setNewDistrict(parts[1]); }
         alert('주소 검색 성공! 세대수를 입력해주세요.');
       } else { alert('검색 결과가 없습니다.'); }
-    } catch (error) { alert('검색 중 오류 발생'); } finally { setIsSearching(false); }
+    } catch (error) { console.error(error); alert('검색 중 오류 발생'); } finally { setIsSearching(false); }
   };
 
   const handleSave = async () => {
@@ -223,12 +223,12 @@ export default function App() {
         await addDoc(collection(db, 'imjang_notes'), entryData);
       }
       goToList();
-    } catch (error) { alert('저장 실패'); } finally { setIsSaving(false); }
+    } catch (error) { console.error(error); alert('저장 실패'); } finally { setIsSaving(false); }
   };
 
   const handleDelete = async (id) => {
     if (window.confirm('이 기록을 삭제하시겠습니까?')) {
-      try { await deleteDoc(doc(db, 'imjang_notes', id)); goToList(); } catch (e) { alert('삭제 실패'); }
+      try { await deleteDoc(doc(db, 'imjang_notes', id)); goToList(); } catch (e) { console.error(e); alert('삭제 실패'); }
     }
   };
 
@@ -283,7 +283,7 @@ export default function App() {
       // Firestore에 분석 결과 영구 저장
       await updateDoc(doc(db, 'imjang_notes', currentEntry.id), { analysisData });
       
-    } catch (e) { alert("API 업데이트 실패"); } finally { setIsPoiLoading(false); }
+    } catch (e) { console.error(e); alert("API 업데이트 실패"); } finally { setIsPoiLoading(false); }
   };
 
   // ================= 🏠 매물 관리 CRUD 로직 =================
@@ -310,7 +310,7 @@ export default function App() {
     try {
       await updateDoc(doc(db, 'imjang_notes', currentEntry.id), { properties: updatedProps });
       resetPropForm();
-    } catch(e) { alert('매물 저장 실패'); }
+    } catch(e) { console.error(e); alert('매물 저장 실패'); }
   };
 
   const handleDeleteProperty = async (propId) => {
