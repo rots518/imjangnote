@@ -114,7 +114,7 @@ export default function App() {
   const fileInputRef = useRef(null);
 
   // 🔴 중요: 여기에 실제 카카오 REST API 키를 넣으세요!
-  const KAKAO_REST_API_KEY = '실제_REST_API_키를_여기에_넣으세요';
+  const KAKAO_REST_API_KEY = 'ec73b276eedaefb216ac1a88193e13c4';
 
   // Firestore 실시간 동기화
   useEffect(() => {
