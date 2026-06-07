@@ -114,7 +114,7 @@ export default function App() {
   const fileInputRef = useRef(null);
 
   // 🔴 중요: 여기에 실제 카카오 REST API 키를 넣으세요!
-  const KAKAO_REST_API_KEY = 'ec73b276eedaefb216ac1a88193e13c4';
+  const KAKAO_REST_API_KEY = '실제_REST_API_키를_여기에_넣으세요';
 
   // Firestore 실시간 동기화
   useEffect(() => {
@@ -475,7 +475,8 @@ export default function App() {
                     <div className="flex flex-wrap gap-2 mb-3">
                       {prop.area && <span className="bg-gray-100 text-gray-700 text-[11px] px-2 py-1 rounded font-medium flex items-center gap-1"><Maximize size={10}/> {prop.area}</span>}
                       {prop.type && <span className="bg-gray-100 text-gray-700 text-[11px] px-2 py-1 rounded font-medium">{prop.type}</span>}
-                      {(prop.rooms || prop.baths) && <span className="bg-indigo-50 text-indigo-700 text-[11px] px-2 py-1 rounded font-medium flex items-center gap-1">방 {prop.rooms||0} / 화 {prop.baths||0}</span>}
+                      {/* 미사용 에러 해결을 위해 수정된 부분 */}
+                      {(prop.rooms || prop.baths) && <span className="bg-indigo-50 text-indigo-700 text-[11px] px-2 py-1 rounded font-medium flex items-center gap-1"><DoorOpen size={10}/> {prop.rooms||0} <Bath size={10}/> {prop.baths||0}</span>}
                       {prop.floor && <span className="bg-gray-100 text-gray-700 text-[11px] px-2 py-1 rounded font-medium flex items-center gap-1"><Building size={10}/> {prop.floor}</span>}
                     </div>
                     {prop.notes && <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 whitespace-pre-wrap"><FileText size={14} className="inline mr-1 text-gray-400 -mt-0.5"/>{prop.notes}</div>}
@@ -524,7 +525,6 @@ export default function App() {
                         <div key={idx} className="flex flex-col border-b border-gray-50 last:border-0 p-3">
                           <div className="flex justify-between items-center mb-2">
                             <div className="flex items-center gap-2"><span className="text-sm font-bold text-gray-800">{poi.name}</span><span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-sm">{poi.category}</span></div>
-                            {/* 🔴 길찾기 목적지 연결 수정 (이름 대신 주소를 사용) */}
                             <a href={`https://map.kakao.com/?sName=${encodeURIComponent(currentEntry.address)}&eName=${encodeURIComponent(poi.name)}`} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gray-500 hover:text-emerald-600 underline underline-offset-2 flex items-center gap-1">대중교통 보기 <ChevronLeft size={10} className="rotate-180" /></a>
                           </div>
                           <div className="flex gap-3 text-xs mt-1">
@@ -545,7 +545,6 @@ export default function App() {
   };
 
   const renderAdd = () => (
-    // ... 기존 renderAdd 유지 (동일)
     <div className="flex-1 overflow-y-auto bg-white flex flex-col h-full">
       <div className="sticky top-0 bg-white/90 backdrop-blur-md border-b border-gray-100 p-4 flex items-center z-10">
         <button onClick={goToList} className="p-2 -ml-2 text-gray-600 rounded-full hover:bg-gray-100"><ChevronLeft size={24} /></button>
