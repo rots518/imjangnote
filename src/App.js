@@ -1,10 +1,9 @@
-/* eslint-disable */
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
-  MapPin, Camera, Calendar, ChevronLeft, Plus, List as ListIcon, 
+  MapPin, Camera, Calendar, ChevronLeft, ChevronRight, Plus, List as ListIcon, 
   Trash2, Image as ImageIcon, Building, Search, Users, Map, 
   Train, Home, Coffee, MessageCircle, Loader2, Filter, Edit, Navigation, RefreshCw, X,
-  FileText, DoorOpen, Bath, Maximize, Clock
+  FileText, DoorOpen, Bath, Maximize, Clock, Info
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -43,7 +42,7 @@ const getStraightDistance = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
-const compressImage = (file, maxWidthOrHeight = 1920) => {
+const compressImage = (file, maxSizeMB = 1, maxWidthOrHeight = 1920) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -75,7 +74,9 @@ export default function App() {
   const [currentView, setCurrentView] = useState('list');
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [detailTab, setDetailTab] = useState('memo');
-  const [expandedImage, setExpandedImage] = useState(null);
+  
+  // 이미지 확대 관련 상태
+  const [expandedImageIndex, setExpandedImageIndex] = useState(null);
   
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
@@ -91,6 +92,7 @@ export default function App() {
   const [newDistrict, setNewDistrict] = useState('');
   const [newAddress, setNewAddress] = useState('');
   const [newHouseholds, setNewHouseholds] = useState('');
+  const [newBuiltYear, setNewBuiltYear] = useState(''); // 연식 상태 추가
   const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
   const [memoTransport, setMemoTransport] = useState('');
   const [memoCondition, setMemoCondition] = useState('');
@@ -126,6 +128,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // 현재 보고 있는 엔트리 실시간 추적
   const currentEntry = entries.find(e => e.id === selectedEntryId);
 
   const availableRegions = ['전체', ...new Set(entries.map(e => e.region).filter(Boolean))];
@@ -146,7 +149,7 @@ export default function App() {
   const goToDetail = (entry) => { setSelectedEntryId(entry.id); setDetailTab('memo'); setCurrentView('detail'); setIsPropFormOpen(false); };
 
   const goToAdd = () => {
-    setNewName(''); setNewRegion(''); setNewDistrict(''); setNewAddress(''); setNewHouseholds('');
+    setNewName(''); setNewRegion(''); setNewDistrict(''); setNewAddress(''); setNewHouseholds(''); setNewBuiltYear('');
     setNewDate(new Date().toISOString().split('T')[0]);
     setMemoTransport(''); setMemoCondition(''); setMemoSurroundings(''); setMemoVibe('');
     setExistingImages([]); setNewImageFiles([]); setNewImagePreviews([]);
@@ -156,7 +159,7 @@ export default function App() {
   const goToEdit = () => {
     if(!currentEntry) return;
     setNewName(currentEntry.name); setNewRegion(currentEntry.region); setNewDistrict(currentEntry.district);
-    setNewAddress(currentEntry.address || ''); setNewHouseholds(currentEntry.households || '');
+    setNewAddress(currentEntry.address || ''); setNewHouseholds(currentEntry.households || ''); setNewBuiltYear(currentEntry.builtYear || '');
     setNewDate(currentEntry.date || new Date().toISOString().split('T')[0]);
     setMemoTransport(currentEntry.memo?.transport || ''); setMemoCondition(currentEntry.memo?.condition || '');
     setMemoSurroundings(currentEntry.memo?.surroundings || ''); setMemoVibe(currentEntry.memo?.vibe || '');
@@ -167,17 +170,17 @@ export default function App() {
   const handleImageChange = async (e) => {
     const files = Array.from(e.target.files);
     try {
-      const compressedFiles = await Promise.all(files.map(file => compressImage(file, 1920)));
+      const compressedFiles = await Promise.all(files.map(file => compressImage(file, 1, 1920)));
       setNewImageFiles(prev => [...prev, ...compressedFiles]);
       setNewImagePreviews(prev => [...prev, ...compressedFiles.map(file => URL.createObjectURL(file))]);
-    } catch (error) { console.error(error); alert('이미지 처리 중 오류 발생'); }
+    } catch (error) { alert('이미지 처리 중 오류 발생'); }
   };
 
   const removeNewImage = (idx) => {
-    setNewImageFiles(prev => prev.filter((item, i) => i !== idx));
-    setNewImagePreviews(prev => prev.filter((item, i) => i !== idx));
+    setNewImageFiles(prev => prev.filter((_, i) => i !== idx));
+    setNewImagePreviews(prev => prev.filter((_, i) => i !== idx));
   };
-  const removeExistingImage = (idx) => setExistingImages(prev => prev.filter((item, i) => i !== idx));
+  const removeExistingImage = (idx) => setExistingImages(prev => prev.filter((_, i) => i !== idx));
 
   const handleSearch = async () => {
     if (!newName.trim()) { alert('단지명을 입력해주세요.'); return; }
@@ -194,7 +197,7 @@ export default function App() {
         setNewAddress(place.road_address_name || place.address_name);
         const parts = place.address_name.split(' ');
         if (parts.length >= 2) { setNewRegion(parts[0]); setNewDistrict(parts[1]); }
-        alert('주소 검색 성공! 세대수를 입력해주세요.');
+        alert('주소 검색 성공! 세대수와 연식을 입력해주세요.');
       } else { alert('검색 결과가 없습니다.'); }
     } catch (error) { console.error(error); alert('검색 중 오류 발생'); } finally { setIsSearching(false); }
   };
@@ -210,7 +213,7 @@ export default function App() {
         uploadedImageUrls.push(await getDownloadURL(fileRef));
       }
       const entryData = {
-        name: newName, region: newRegion, district: newDistrict, address: newAddress, households: newHouseholds, date: newDate,
+        name: newName, region: newRegion, district: newDistrict, address: newAddress, households: newHouseholds, builtYear: newBuiltYear, date: newDate,
         memo: { transport: memoTransport, condition: memoCondition, surroundings: memoSurroundings, vibe: memoVibe },
         images: [...existingImages, ...uploadedImageUrls]
       };
@@ -219,7 +222,7 @@ export default function App() {
         await updateDoc(doc(db, 'imjang_notes', currentEntry.id), entryData);
       } else {
         entryData.createdAt = serverTimestamp();
-        entryData.properties = []; 
+        entryData.properties = []; // 새 기록 생성 시 매물 배열 초기화
         await addDoc(collection(db, 'imjang_notes'), entryData);
       }
       goToList();
@@ -232,6 +235,7 @@ export default function App() {
     }
   };
 
+  // ================= 🚀 API 실시간 데이터 업데이트 및 저장 로직 =================
   const updateApiData = async () => {
     if (KAKAO_REST_API_KEY.includes('실제_REST_API_키')) { alert('카카오 REST API 키를 입력해주세요!'); return; }
     if (!currentEntry?.address) { alert('주소 정보가 없어 분석할 수 없습니다.'); return; }
@@ -272,9 +276,11 @@ export default function App() {
         results[poi.name] = { straightDist: dist.toFixed(1), driveTime: driveTime };
       }
 
+      // 단지 좌표도 함께 저장 (카카오맵 앱 연동시 사용)
       const analysisData = {
         nearestSubway,
         poiResults: results,
+        originCoords: { x: originX, y: originY },
         lastUpdated: new Date().toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
       };
 
@@ -283,6 +289,7 @@ export default function App() {
     } catch (e) { console.error(e); alert("API 업데이트 실패"); } finally { setIsPoiLoading(false); }
   };
 
+  // ================= 🏠 매물 관리 CRUD 로직 =================
   const resetPropForm = () => {
     setPropPrice(''); setPropArea(''); setPropType('계단식'); setPropRooms(''); setPropBaths(''); setPropFloor(''); setPropNotes('');
     setPropEditId(null); setIsPropFormOpen(false);
@@ -321,6 +328,20 @@ export default function App() {
     setPropRooms(prop.rooms || ''); setPropBaths(prop.baths || ''); setPropFloor(prop.floor || ''); setPropNotes(prop.notes || '');
     setPropEditId(prop.id); setIsPropFormOpen(true);
   };
+
+  // 이미지 모달 내비게이션
+  const handlePrevImage = (e) => {
+    e.stopPropagation();
+    if (!currentEntry?.images) return;
+    setExpandedImageIndex((prev) => (prev > 0 ? prev - 1 : currentEntry.images.length - 1));
+  };
+
+  const handleNextImage = (e) => {
+    e.stopPropagation();
+    if (!currentEntry?.images) return;
+    setExpandedImageIndex((prev) => (prev < currentEntry.images.length - 1 ? prev + 1 : 0));
+  };
+
 
   const renderList = () => (
     <div className="flex-1 overflow-y-auto bg-gray-50 flex flex-col">
@@ -362,7 +383,11 @@ export default function App() {
               </div>
               <div className="flex gap-3 mt-4 items-center justify-between">
                 <div className="flex gap-2">
-                  {entry.households && <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-600 bg-gray-50 px-2 py-1 rounded-md"><Users size={12} /> {entry.households}세대</span>}
+                  {(entry.households || entry.builtYear) && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-600 bg-gray-50 px-2 py-1 rounded-md">
+                      <Users size={12} /> {entry.households ? `${entry.households}세대` : ''}{entry.households && entry.builtYear ? ' / ' : ''}{entry.builtYear ? `${entry.builtYear}년` : ''}
+                    </span>
+                  )}
                   {entry.properties?.length > 0 && <span className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md"><Home size={12} /> 매물 {entry.properties.length}건</span>}
                 </div>
                 <span className="text-[11px] font-medium text-gray-400">{entry.date}</span>
@@ -397,7 +422,9 @@ export default function App() {
           <div className="flex flex-col gap-2 text-sm text-gray-600 bg-gray-50 p-4 rounded-xl mb-6">
             {currentEntry.address && <span className="flex items-center gap-2"><Map size={16} className="text-blue-500"/> {currentEntry.address}</span>}
             <div className="flex gap-4 mt-1">
-              {currentEntry.households && <span className="flex items-center gap-2"><Users size={16} className="text-blue-500"/> {currentEntry.households}세대</span>}
+              {(currentEntry.households || currentEntry.builtYear) && (
+                <span className="flex items-center gap-2"><Users size={16} className="text-blue-500"/> {currentEntry.households ? `${currentEntry.households}세대` : ''}{currentEntry.households && currentEntry.builtYear ? ' / ' : ''}{currentEntry.builtYear ? `${currentEntry.builtYear}년` : ''}</span>
+              )}
               <span className="flex items-center gap-2"><Calendar size={16} className="text-blue-500"/> {currentEntry.date}</span>
             </div>
           </div>
@@ -408,6 +435,7 @@ export default function App() {
             <button onClick={() => setDetailTab('analysis')} className={`flex-1 py-3 text-sm font-bold flex justify-center items-center gap-2 border-b-2 transition-all ${detailTab === 'analysis' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-gray-400'}`}><Navigation size={16} /> 분석</button>
           </div>
 
+          {/* 📝 임장 메모 탭 */}
           {detailTab === 'memo' && (
             <div className="animate-in fade-in duration-300">
               {currentEntry.images?.length > 0 && (
@@ -415,7 +443,7 @@ export default function App() {
                   <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2"><Camera size={16} className="text-blue-500" /> 현장 사진</h4>
                   <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
                     {currentEntry.images.map((imgUrl, idx) => (
-                      <img key={idx} src={imgUrl} alt="현장사진" onClick={() => setExpandedImage(imgUrl)} className="h-48 w-48 object-cover rounded-xl shadow-sm snap-center shrink-0 border border-gray-200 cursor-pointer" />
+                      <img key={idx} src={imgUrl} alt="현장사진" onClick={() => setExpandedImageIndex(idx)} className="h-48 w-48 object-cover rounded-xl shadow-sm snap-center shrink-0 border border-gray-200 cursor-pointer" />
                     ))}
                   </div>
                 </div>
@@ -429,6 +457,7 @@ export default function App() {
             </div>
           )}
 
+          {/* 🏠 매물 관리 탭 */}
           {detailTab === 'props' && (
             <div className="animate-in fade-in duration-300">
               <div className="flex justify-between items-center mb-4">
@@ -442,14 +471,14 @@ export default function App() {
                     <span className="font-bold text-indigo-800 text-sm">{propEditId ? '매물 수정' : '새 매물 입력'}</span>
                     <button onClick={resetPropForm} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
                   </div>
-                  <div><label className="text-xs font-semibold text-gray-600">가격 (매매/전세 등)</label><input type="text" value={propPrice} onChange={e=>setPropPrice(e.target.value)} placeholder="예: 매매 8.5억" className="w-full mt-1 p-2.5 rounded-lg border border-gray-200 text-sm"/></div>
+                  <div><label className="text-xs font-semibold text-gray-600">가격 (매매/전세 등)</label><input type="text" value={propPrice} onChange={e=>setPropPrice(e.target.value)} placeholder="예: 매매 8.5억" className="w-full mt-1 p-2.5 rounded-lg border border-gray-200 text-sm outline-none"/></div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className="text-xs font-semibold text-gray-600">면적/평형</label><input type="text" value={propArea} onChange={e=>setPropArea(e.target.value)} placeholder="예: 84㎡ (34평)" className="w-full mt-1 p-2.5 rounded-lg border border-gray-200 text-sm"/></div>
-                    <div><label className="text-xs font-semibold text-gray-600">유형 (계단/복도)</label><select value={propType} onChange={e=>setPropType(e.target.value)} className="w-full mt-1 p-2.5 rounded-lg border border-gray-200 text-sm bg-white"><option>계단식</option><option>복도식</option><option>복층형</option><option>기타</option></select></div>
-                    <div><label className="text-xs font-semibold text-gray-600">방/화장실</label><div className="flex gap-1 mt-1"><input type="number" value={propRooms} onChange={e=>setPropRooms(e.target.value)} placeholder="방" className="w-full p-2.5 rounded-lg border border-gray-200 text-sm"/><input type="number" value={propBaths} onChange={e=>setPropBaths(e.target.value)} placeholder="화" className="w-full p-2.5 rounded-lg border border-gray-200 text-sm"/></div></div>
-                    <div><label className="text-xs font-semibold text-gray-600">층수/방향</label><input type="text" value={propFloor} onChange={e=>setPropFloor(e.target.value)} placeholder="예: 12층 남향" className="w-full mt-1 p-2.5 rounded-lg border border-gray-200 text-sm"/></div>
+                    <div><label className="text-xs font-semibold text-gray-600">면적/평형</label><input type="text" value={propArea} onChange={e=>setPropArea(e.target.value)} placeholder="예: 84㎡ (34평)" className="w-full mt-1 p-2.5 rounded-lg border border-gray-200 text-sm outline-none"/></div>
+                    <div><label className="text-xs font-semibold text-gray-600">유형 (계단/복도)</label><select value={propType} onChange={e=>setPropType(e.target.value)} className="w-full mt-1 p-2.5 rounded-lg border border-gray-200 text-sm bg-white outline-none"><option>계단식</option><option>복도식</option><option>복층형</option><option>기타</option></select></div>
+                    <div><label className="text-xs font-semibold text-gray-600">방/화장실</label><div className="flex gap-1 mt-1"><input type="number" value={propRooms} onChange={e=>setPropRooms(e.target.value)} placeholder="방" className="w-full p-2.5 rounded-lg border border-gray-200 text-sm outline-none"/><input type="number" value={propBaths} onChange={e=>setPropBaths(e.target.value)} placeholder="화" className="w-full p-2.5 rounded-lg border border-gray-200 text-sm outline-none"/></div></div>
+                    <div><label className="text-xs font-semibold text-gray-600">층수/방향</label><input type="text" value={propFloor} onChange={e=>setPropFloor(e.target.value)} placeholder="예: 12층 남향" className="w-full mt-1 p-2.5 rounded-lg border border-gray-200 text-sm outline-none"/></div>
                   </div>
-                  <div><label className="text-xs font-semibold text-gray-600">특이사항</label><textarea value={propNotes} onChange={e=>setPropNotes(e.target.value)} placeholder="올수리, 세입자 안고, 누수 흔적 등" className="w-full mt-1 p-2.5 rounded-lg border border-gray-200 text-sm h-20 resize-none"/></div>
+                  <div><label className="text-xs font-semibold text-gray-600">특이사항</label><textarea value={propNotes} onChange={e=>setPropNotes(e.target.value)} placeholder="올수리, 세입자 안고, 누수 흔적 등" className="w-full mt-1 p-2.5 rounded-lg border border-gray-200 text-sm h-20 resize-none outline-none"/></div>
                   <button onClick={handleSaveProperty} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700">저장하기</button>
                 </div>
               )}
@@ -479,6 +508,7 @@ export default function App() {
             </div>
           )}
 
+          {/* 🗺️ 입지 분석 탭 */}
           {detailTab === 'analysis' && (
             <div className="animate-in fade-in duration-300">
               <div className="flex items-center justify-between mb-4">
@@ -511,11 +541,35 @@ export default function App() {
                   <div className="bg-white border border-gray-200 p-1 rounded-xl shadow-sm">
                     {POI_LIST.map((poi, idx) => {
                       const res = analysisData.poiResults?.[poi.name];
+                      
+                      // 🔴 카카오맵 앱 연동 URL 스키마 생성
+                      // originCoords가 저장되어 있다면 좌표 기반 길찾기 스키마 사용
+                      let appUrl = '';
+                      let webUrl = '';
+                      if (analysisData.originCoords) {
+                         appUrl = `kakaomap://route?sp=${analysisData.originCoords.y},${analysisData.originCoords.x}&ep=${poi.y},${poi.x}&by=PUBLICTRANSIT`;
+                      } else {
+                         // 기존 데이터 호환성 유지
+                         appUrl = `kakaomap://route?ep=${poi.y},${poi.x}&by=PUBLICTRANSIT`;
+                      }
+                      // 웹 브라우저용 Fallback URL
+                      webUrl = `https://map.kakao.com/?sName=${encodeURIComponent(currentEntry.address)}&eName=${encodeURIComponent(poi.name)}`;
+
                       return (
                         <div key={idx} className="flex flex-col border-b border-gray-50 last:border-0 p-3">
                           <div className="flex justify-between items-center mb-2">
                             <div className="flex items-center gap-2"><span className="text-sm font-bold text-gray-800">{poi.name}</span><span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-sm">{poi.category}</span></div>
-                            <a href={`https://map.kakao.com/?sName=${encodeURIComponent(currentEntry.address)}&eName=${encodeURIComponent(poi.name)}`} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gray-500 hover:text-emerald-600 underline underline-offset-2 flex items-center gap-1">대중교통 보기 <ChevronLeft size={10} className="rotate-180" /></a>
+                            
+                            <div className="flex gap-2">
+                              {/* 1. 카카오맵 앱으로 열기 (모바일 최적화) */}
+                              <a href={appUrl} className="text-[11px] text-blue-500 hover:text-blue-700 underline underline-offset-2 flex items-center gap-1 font-medium bg-blue-50 px-2 py-0.5 rounded-full">
+                                앱으로 보기 <ChevronLeft size={10} className="rotate-180" />
+                              </a>
+                              {/* 2. 웹으로 열기 (PC 및 Fallback) */}
+                              <a href={webUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gray-500 hover:text-emerald-600 underline underline-offset-2 flex items-center gap-1 bg-gray-50 px-2 py-0.5 rounded-full">
+                                웹으로 보기
+                              </a>
+                            </div>
                           </div>
                           <div className="flex gap-3 text-xs mt-1">
                             <div className="flex-1 bg-gray-50 p-2.5 rounded-lg flex flex-col justify-center"><span className="text-gray-400 block mb-0.5">지도상 직선거리</span><span className="font-bold text-gray-700 text-sm">{res ? `${res.straightDist} km` : '-'}</span></div>
@@ -524,6 +578,12 @@ export default function App() {
                         </div>
                       );
                     })}
+                  </div>
+                  <div className="mt-4 bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-start gap-2">
+                    <Info size={14} className="text-blue-500 mt-0.5 shrink-0" />
+                    <p className="text-[11px] text-blue-800 leading-relaxed">
+                      모바일 환경에서는 <strong>'앱으로 보기'</strong>를 클릭하면 카카오맵 앱이 바로 실행되어 출발지부터 대중교통 경로를 즉시 확인할 수 있습니다.<br/>(앱이 없거나 PC인 경우 '웹으로 보기' 이용)
+                    </p>
                   </div>
                 </>
               )}
@@ -547,7 +607,9 @@ export default function App() {
             <label className="block text-sm font-semibold text-gray-700 mb-2">단지명 검색</label>
             <div className="flex gap-2">
               <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="예: 등촌우성" className="flex-1 p-3 bg-white border border-gray-200 rounded-xl outline-none" />
-              <button onClick={handleSearch} disabled={isSearching} className="bg-[#FEE500] text-[#000000] px-4 rounded-xl font-bold flex items-center gap-2">{isSearching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} 주소검색</button>
+              <button onClick={handleSearch} disabled={isSearching} className="bg-[#FEE500] text-[#000000] px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 whitespace-nowrap shrink-0 w-auto">
+                {isSearching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} 주소검색
+              </button>
             </div>
           </div>
           <div>
@@ -559,8 +621,24 @@ export default function App() {
             <div className="flex-1"><label className="block text-sm font-semibold text-gray-700 mb-2">구/군</label><input type="text" readOnly value={newDistrict} className="w-full p-3 bg-gray-100 border border-gray-200 rounded-xl text-sm outline-none text-gray-600" placeholder="자동입력" /></div>
           </div>
           <div className="flex gap-4">
-            <div className="flex-1"><label className="block text-sm font-semibold text-gray-700 mb-2">세대수</label><div className="relative"><input type="text" value={newHouseholds} onChange={(e) => setNewHouseholds(e.target.value)} placeholder="직접 입력" className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm pr-10 outline-none" /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">세대</span></div></div>
-            <div className="flex-1"><label className="block text-sm font-semibold text-gray-700 mb-2">임장 날짜</label><input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm outline-none" /></div>
+            <div className="flex-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">세대수</label>
+              <div className="relative">
+                <input type="text" value={newHouseholds} onChange={(e) => setNewHouseholds(e.target.value)} placeholder="직접 입력" className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm pr-10 outline-none" />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">세대</span>
+              </div>
+            </div>
+            <div className="flex-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">연식 (입주년도)</label>
+              <div className="relative">
+                <input type="text" value={newBuiltYear} onChange={(e) => setNewBuiltYear(e.target.value)} placeholder="예: 2018" className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm pr-8 outline-none" />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">년</span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">임장 날짜</label>
+            <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm outline-none" />
           </div>
         </div>
 
@@ -599,10 +677,51 @@ export default function App() {
       {currentView === 'detail' && renderDetail()}
       {currentView === 'add' && renderAdd()}
       
-      {expandedImage && (
-        <div className="absolute inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center" onClick={() => setExpandedImage(null)}>
-          <button className="absolute top-6 right-6 text-white p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"><X size={24} /></button>
-          <img src={expandedImage} className="max-w-full max-h-full object-contain select-none px-4" alt="확대" onClick={(e) => e.stopPropagation()} />
+      {expandedImageIndex !== null && currentEntry?.images && (
+        <div className="absolute inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center" onClick={() => setExpandedImageIndex(null)}>
+          <button className="absolute top-6 right-6 text-white p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-[110]"><X size={24} /></button>
+          
+          <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+            {/* 이전 버튼 */}
+            {currentEntry.images.length > 1 && (
+              <button 
+                onClick={handlePrevImage}
+                className="absolute left-4 text-white p-3 rounded-full bg-black/40 hover:bg-black/60 transition-colors z-[110]"
+              >
+                <ChevronLeft size={32} />
+              </button>
+            )}
+
+            <img 
+              src={currentEntry.images[expandedImageIndex]} 
+              className="max-w-full max-h-full object-contain select-none px-4" 
+              alt={`확대 ${expandedImageIndex + 1}`} 
+              onClick={(e) => e.stopPropagation()} 
+            />
+
+            {/* 다음 버튼 */}
+            {currentEntry.images.length > 1 && (
+              <button 
+                onClick={handleNextImage}
+                className="absolute right-4 text-white p-3 rounded-full bg-black/40 hover:bg-black/60 transition-colors z-[110]"
+              >
+                <ChevronRight size={32} />
+              </button>
+            )}
+          </div>
+
+          {/* 사진 인디케이터 (점) */}
+          {currentEntry.images.length > 1 && (
+            <div className="absolute bottom-10 flex gap-2" onClick={(e) => e.stopPropagation()}>
+              {currentEntry.images.map((_, idx) => (
+                <div 
+                  key={idx} 
+                  className={`h-2 rounded-full transition-all ${idx === expandedImageIndex ? 'w-4 bg-white' : 'w-2 bg-white/40 cursor-pointer'}`}
+                  onClick={() => setExpandedImageIndex(idx)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
