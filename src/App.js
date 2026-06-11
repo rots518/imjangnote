@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   MapPin, Camera, Calendar, ChevronLeft, ChevronRight, Plus, List as ListIcon, 
-  Trash2, Image as ImageIcon, Building, Search, Users, Map, 
+  Trash2, Building, Search, Users, Map, // Image as ImageIcon 삭제
   Train, Home, Coffee, MessageCircle, Loader2, Filter, Edit, Navigation, RefreshCw, X,
   FileText, DoorOpen, Bath, Maximize, Clock, Info
 } from 'lucide-react';
@@ -734,5 +734,3 @@ export default function App() {
     </div>
   );
 }
-
-// 테스트
